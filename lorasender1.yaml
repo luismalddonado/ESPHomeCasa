@@ -1,0 +1,85 @@
+esphome:
+  name: lorasender1
+      
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+external_components:
+  - source: github://dala318/esphome@sx127x-transport
+    components:
+      - sx127x
+      - packet_transport
+
+# Enable logging
+logger:
+  level: INFO
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart LORA Sender"
+    
+interval:
+  - interval: 1440min
+    startup_delay: 1440min
+    then:
+      - logger.log: "Rebooting device (scheduled restart)..."
+      - delay: 200ms
+      - button.press: restart_button
+      
+spi:
+  clk_pin: GPIO5
+  mosi_pin: GPIO27
+  miso_pin: GPIO19
+
+sx127x:
+  dio0_pin: GPIO26
+  cs_pin: GPIO18
+  rst_pin: GPIO23
+  pa_pin: BOOST
+  pa_power: 17
+  bandwidth: 125_0kHz
+  crc_enable: true
+  frequency: 868920000
+  modulation: LORA
+  rx_start: false
+  sync_value: 0x12
+  spreading_factor: 10
+  coding_rate: CR_4_5
+  on_packet:
+    then:
+      - lambda: |-
+          ESP_LOGI("lambda", "packet %s", format_hex(x).c_str());
+          
+packet_transport:
+  platform: sx127x
+  update_interval: 120s
+  sensors:
+    - temperatura1
+    - temperatura2
+  providers:
+    - name: lorasender1
+          
+one_wire:
+  - platform: gpio
+    id: temperaturapin
+    pin: GPIO21
+    
+sensor:
+  - platform: dallas_temp
+    address: 0x2e000000b3340628 
+    name: "Temperatura 1"
+    accuracy_decimals: 1
+    one_wire_id: temperaturapin
+    id: temperatura1
+    update_interval: 120s
+  - platform: dallas_temp
+    address: 0xc0000000b352eb28
+    name: "Temperatura 2"
+    accuracy_decimals: 1
+    one_wire_id: temperaturapin
+    id: temperatura2
+    update_interval: 120s
+    

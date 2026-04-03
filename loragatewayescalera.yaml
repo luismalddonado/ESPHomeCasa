@@ -1,0 +1,178 @@
+esphome:
+  name: loragatewayescalera
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+external_components:
+  - source: github://dala318/esphome@sx127x-transport
+    components:
+      - sx127x
+      - packet_transport
+ 
+# Enable logging
+logger:
+  level: INFO
+
+# Enable Home Assistant API
+api:
+  password: "5523434a"
+
+ota:
+  - platform: esphome
+    password: "5523434a"
+
+wifi:
+  ssid: "DOMOTICACASA"
+  password: "33333333"
+  output_power: 20dB
+  power_save_mode: none
+  on_disconnect:
+    then:
+      - lambda: |-
+          ESP.restart();
+          
+time:
+  - platform: sntp
+    id: loragatewaytime
+    timezone: "Europe/Madrid"
+    
+web_server:
+  port: 80
+      
+captive_portal:
+
+    
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart LORA Gateway"
+    
+spi:
+  clk_pin: GPIO5
+  mosi_pin: GPIO27
+  miso_pin: GPIO19
+
+globals:
+  - id: last_rssi
+    type: int
+    initial_value: '0'
+
+  - id: last_snr
+    type: float
+    initial_value: '0.0'
+
+  - id: last_rx_time
+    type: int
+    initial_value: '0.0'
+
+  - id: minute_count
+    type: int
+    restore_value: no   # keeps value after reboot
+    initial_value: '0'
+    
+    
+interval:
+  - interval: 1440min
+    startup_delay: 1440min
+    then:
+      - logger.log: "Rebooting device (scheduled restart)..."
+      - delay: 200ms
+      - button.press: restart_button
+
+  - interval: 30s
+    then:
+      - lambda: |-
+          id(minute_count) += 1;
+          id(minutecounter).publish_state(id(minute_count));      
+          
+sx127x: 
+  dio0_pin: GPIO26
+  cs_pin: GPIO18
+  rst_pin: GPIO23
+  pa_pin: BOOST
+  pa_power: 17
+  bandwidth: 125_0kHz
+  crc_enable: true
+  frequency: 868920000
+  modulation: LORA
+  rx_start: true
+  sync_value: 0x12
+  spreading_factor: 10
+  coding_rate: CR_4_5
+  on_packet:
+    then:
+      - lambda: |-
+          auto now = id(loragatewaytime).now();
+          id(last_rx_time) = now.timestamp;
+          id(last_rssi) = rssi;
+          id(last_snr) = snr;
+        
+          ESP_LOGI("lambda", "packet %s", format_hex(x).c_str());
+          
+packet_transport:
+  platform: sx127x
+  update_interval: 60s
+  sensors:
+    - minutecounter
+  providers:
+    - name: lorasender1
+    
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifisignal
+    update_interval: 60s
+    
+  - platform: packet_transport
+    id: temperatura1
+    provider: lorasender1
+    
+  - platform: packet_transport
+    id: temperatura2
+    provider: lorasender1
+
+    
+  - platform: template
+    name: "Circuito viviendas (Comunidad)"
+    device_class: temperature
+    unit_of_measurement: °C
+    update_interval: 60s
+    accuracy_decimals: 1
+    lambda: |-
+       ESP_LOGI("lambda","LORA Temperatura1 - sensor updated: %.2f",id(temperatura1).state);
+       return id(temperatura1).state;
+       
+  - platform: template
+    name: "Circuito placas (Comunidad)"
+    device_class: temperature
+    unit_of_measurement: °C
+    update_interval: 60s
+    lambda: |-
+       ESP_LOGI("lambda","LORA Temperatura2 - sensor updated: %.2f",id(temperatura2).state);
+       return id(temperatura2).state;
+
+  - platform: template
+    name: "Minute Counter"
+    id: minutecounter
+    unit_of_measurement: "min"
+    accuracy_decimals: 0
+    update_interval: 30s 
+    
+  - platform: template
+    id: rssi_sensor
+    name: "LoRa Last RSSI"
+    lambda: |-
+      return id(last_rssi);
+    update_interval: 60s
+
+  - platform: template
+    id: snr_sensor
+    name: "LoRa Last SNR"
+    lambda: |-
+      return id(last_snr);
+    update_interval: 60s
+  
+
