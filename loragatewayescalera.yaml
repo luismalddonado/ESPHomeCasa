@@ -18,7 +18,9 @@ logger:
 
 # Enable Home Assistant API
 api:
-  password: "5523434a"
+  reboot_timeout: 0s
+  encryption:
+    key: "Jokv+sef/jexoCyDaNj/b4RDGbAIysZv/o4IboDkzi4="
 
 ota:
   - platform: esphome
@@ -49,7 +51,18 @@ button:
   - platform: restart
     id: restart_button
     name: "Restart LORA Gateway"
-    
+
+  - platform: template
+    id: open_door
+    name: "Open garage door"
+    on_press:
+      then:
+        - sx127x.send_packet:
+            data: !lambda |-
+              ESP_LOGI("LoRa", "CMDOPEN packege sent");
+              std::string msg = "cmdopen";
+              return std::vector<uint8_t>(msg.begin(), msg.end());
+        
 spi:
   clk_pin: GPIO5
   mosi_pin: GPIO27
@@ -68,9 +81,9 @@ globals:
     type: int
     initial_value: '0.0'
 
-  - id: minute_count
+  - id: pingcasa_count
     type: int
-    restore_value: no   # keeps value after reboot
+    restore_value: no   
     initial_value: '0'
     
     
@@ -85,10 +98,11 @@ interval:
   - interval: 30s
     then:
       - lambda: |-
-          id(minute_count) += 1;
-          id(minutecounter).publish_state(id(minute_count));      
+          id(pingcasa_count) += 1;
+          id(pingcasa).publish_state((int) id(pingcasa_count));   
           
-sx127x: 
+sx127x:
+  id: my_lora  
   dio0_pin: GPIO26
   cs_pin: GPIO18
   rst_pin: GPIO23
@@ -105,18 +119,38 @@ sx127x:
   on_packet:
     then:
       - lambda: |-
-          auto now = id(loragatewaytime).now();
-          id(last_rx_time) = now.timestamp;
-          id(last_rssi) = rssi;
-          id(last_snr) = snr;
-        
-          ESP_LOGI("lambda", "packet %s", format_hex(x).c_str());
+          //Print raw packet as hex
+          //ESP_LOGI("LoRa", "Packet HEX: %s", format_hex(x).c_str());
+          
+          //Print packet length
+          //ESP_LOGI("LoRa", "Length: %u bytes", x.size());
+          
+          // Print payload as ASCII (if printable)
+          std::string payload = "";
+          for (auto b : x) {
+            if (isprint(b)) payload += b;
+            else payload += '.';
+          }
+          ESP_LOGI("LoRa", "Payload: %s", payload.c_str());
+          if (payload.find("statusopen") != std::string::npos) {
+            ESP_LOGI("LoRa", "STATUSOPEN packet received!");
+          }           
+          else if (payload.find("pingcoche") != std::string::npos) {
+            ESP_LOGI("LoRa", "PING coche packet received!");
+          } 
+          else if (payload.find("temperatura") != std::string::npos) {
+            ESP_LOGI("LoRa", "PING placas packet received!");
+          } 
+          else {
+            ESP_LOGI("LoRa", "Unknown packet type: %s", payload.c_str());
+          }          
+          
           
 packet_transport:
   platform: sx127x
-  update_interval: 60s
+  update_interval: 30s
   sensors:
-    - minutecounter
+    - pingcasa
   providers:
     - name: lorasender1
     
@@ -133,8 +167,7 @@ sensor:
   - platform: packet_transport
     id: temperatura2
     provider: lorasender1
-
-    
+   
   - platform: template
     name: "Circuito viviendas (Comunidad)"
     device_class: temperature
@@ -153,26 +186,10 @@ sensor:
     lambda: |-
        ESP_LOGI("lambda","LORA Temperatura2 - sensor updated: %.2f",id(temperatura2).state);
        return id(temperatura2).state;
-
-  - platform: template
-    name: "Minute Counter"
-    id: minutecounter
-    unit_of_measurement: "min"
-    accuracy_decimals: 0
-    update_interval: 30s 
-    
-  - platform: template
-    id: rssi_sensor
-    name: "LoRa Last RSSI"
-    lambda: |-
-      return id(last_rssi);
-    update_interval: 60s
-
-  - platform: template
-    id: snr_sensor
-    name: "LoRa Last SNR"
-    lambda: |-
-      return id(last_snr);
-    update_interval: 60s
   
+  - platform: template
+    name: "PING casa"
+    id: pingcasa
+    update_interval: 30s    
 
+  
