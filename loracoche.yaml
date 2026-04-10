@@ -1,0 +1,180 @@
+esphome:
+  name: puertagaraje
+  friendly_name: Puerta Garaje
+  
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+    advanced:
+      minimum_chip_revision: "3.0"    
+  
+#wifi: 
+#  ssid:  DOMOTICACASA
+#  password: "33333333"
+#  reboot_timeout: 0s
+
+logger:
+  level: INFO
+
+# Enable Home Assistant API
+#api:
+#  reboot_timeout: 0s
+#  encryption:
+#    key: "Jokv+sef/jexoCyDaNj/b4RDGbAIysZv/o4IboDkzi4="
+    
+#ota:
+#  - platform: esphome
+#    password: "5523434a"
+    
+#web_server:
+#  port: 80
+
+# Globals to store learned signals
+globals:
+  - id: learned_code
+    type: std::vector<int32_t>
+    restore_value: false
+    initial_value: "{2638, -392, 2616, -369, 2643, -378, 2601, -374, 2644, -382, 2622, -359, 2644, -380, 370, -2624, 2628, -380, 369, -2642, 2605, -382, 369, -2642, 2606, -383, 370, -2642, 377, -2598, 374, -2642, 2609, -384, 371}"
+  - id: learning_mode
+    type: bool
+    initial_value: 'false'
+  - id: signal_learned
+    type: bool
+    initial_value: 'false'
+  - id: repeat_counter
+    type: int
+    restore_value: no
+    initial_value: '100'
+
+interval:
+  - interval: 3s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(repeat_counter) >= 0;'
+          then:
+            - lambda: |-
+                ESP_LOGI("replay", "Pending executions #%d", id(repeat_counter));
+                id(repeat_counter)--;
+            - lambda: |-
+                if (id(learned_code).empty()) {
+                  ESP_LOGW("replay", "No signal learned yet!");
+                  id(learn_status).publish_state("No signal to replay - learn one first!");
+                  return;
+                }
+                ESP_LOGI("replay", "Sending %d pulses...", id(learned_code).size());
+                id(learn_status).publish_state("Transmitting...");
+            - remote_transmitter.transmit_raw:
+                carrier_frequency: 0Hz
+                code: !lambda 'return id(learned_code);'
+#            - lambda: |-
+#                id(learn_status).publish_state("Signal transmitted!");
+#                ESP_LOGI("replay", "Send complete");
+#            - lambda: |-
+#                std::string preview = "";
+#                int count = 0;
+#                for (int32_t val : id(learned_code)) {
+#                    if (count > 0) preview += ", ";
+#                    preview += std::to_string(val);
+#                    count++;
+#                    if (count >= 10) {
+#                      preview += "... (" + std::to_string(id(learned_code).size()) + " total)";
+#                      break;
+#                    }
+#                } 
+#                id(last_signal).publish_state(preview.c_str());      
+
+  
+esp32_ble:
+  io_capability: none 
+  disable_bt_logs: true  # Default, saves flash
+  
+esp32_ble_server:
+  manufacturer: "ESP32"
+  model: "ESP32"
+  manufacturer_data: [0x4C, 0, 0x23, 77, 0xF0 ]
+  on_connect:
+    - lambda: |-
+        ESP_LOGI("BLE", "Connection started!");
+  on_disconnect:
+    - lambda: |-
+        ESP_LOGI("BLE", "Connection finished!");
+  services:
+    - uuid: 2a24b789-7aab-4535-af3e-ee76a35cc42d
+      advertise: true
+      characteristics:
+        - id: button_pressed
+          uuid: cad48e28-7fbe-41cf-bae9-d77a6c233423
+          description: "Button pressed"
+          write: true
+          on_write:
+            then:
+                - lambda: |-
+                    id(repeat_counter) = 100;
+                    ESP_LOGI("BLE", "repeat_counter set to %d", id(repeat_counter));
+
+# SPI Bus
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+  miso_pin: GPIO19
+
+# CC1101 - Dual Pin Mode
+cc1101:
+  id: cc1101_module
+  cs_pin: GPIO5
+  frequency: 433.92MHz
+  output_power: 11
+  modulation_type: ASK/OOK
+  symbol_rate: 5000
+  filter_bandwidth: 200kHz
+
+# Remote Transmitter - connected to GDO0
+remote_transmitter:
+  id: rf_transmitter
+  pin: GPIO4
+  carrier_duty_percent: 100%
+  on_transmit:
+    then:
+      - cc1101.begin_tx: cc1101_module
+  on_complete:
+    then:
+      - cc1101.begin_rx: cc1101_module
+
+
+button:
+  - platform: restart
+    name: "Restart"
+
+
+  - platform: template
+    name: "Send Signal"
+    icon: "mdi:replay"
+    on_press:
+      - lambda: |-
+          id(repeat_counter)=100;
+          ESP_LOGI("BLE", "repeat_counter reset to %d", id(repeat_counter));
+
+
+text_sensor:
+#  - platform: template
+#    name: "Signal"
+#    id: last_signal
+#    icon: "mdi:signal"
+
+  - platform: template
+    name: "Status"
+    id: learn_status
+    icon: "mdi:information"
+
+    
+sensor:
+  - platform: template
+    name: "Signal length"
+    id: signal_length
+    icon: "mdi:counter"
+    unit_of_measurement: "pulses"
+    lambda: 'return id(learned_code).size();'
+    update_interval: 5s
+    
