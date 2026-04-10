@@ -4,7 +4,7 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
+    type: esp-idf
 
 external_components:
   - source: github://dala318/esphome@sx127x-transport
@@ -31,10 +31,7 @@ wifi:
   password: "33333333"
   output_power: 20dB
   power_save_mode: none
-  on_disconnect:
-    then:
-      - lambda: |-
-          ESP.restart();
+
           
 time:
   - platform: sntp
