@@ -92,7 +92,7 @@ interval:
       - delay: 200ms
       - button.press: restart_button
 
-  - interval: 90s
+  - interval: 60s
     then:
       - lambda: |-
           id(pingcasa_count) += 1;
@@ -132,7 +132,7 @@ sx127x:
           if (payload.find("statusopen") != std::string::npos) {
             ESP_LOGI("LoRa", "STATUSOPEN packet received!");
           }           
-          else if (payload.find("pingcoche") != std::string::npos) {
+          else if (payload.find("loracoche") != std::string::npos) {
             ESP_LOGI("LoRa", "PING coche packet received!");
           } 
           else if (payload.find("temperatura") != std::string::npos) {
@@ -145,7 +145,7 @@ sx127x:
           
 packet_transport:
   platform: sx127x
-  update_interval: 90s
+  update_interval: 60s
   sensors:
     - pingcasa
   providers:
@@ -155,7 +155,7 @@ sensor:
   - platform: wifi_signal
     name: "WiFi Signal Strength"
     id: wifisignal
-    update_interval: 90s
+    update_interval: 60s
     
   - platform: packet_transport
     id: temperatura1
@@ -169,7 +169,7 @@ sensor:
     name: "Circuito viviendas (Comunidad)"
     device_class: temperature
     unit_of_measurement: °C
-    update_interval: 90s
+    update_interval: 60s
     accuracy_decimals: 1
     lambda: |-
        ESP_LOGI("lambda","LORA Temperatura1 - sensor updated: %.2f",id(temperatura1).state);
@@ -179,7 +179,7 @@ sensor:
     name: "Circuito placas (Comunidad)"
     device_class: temperature
     unit_of_measurement: °C
-    update_interval: 90s
+    update_interval: 60s
     lambda: |-
        ESP_LOGI("lambda","LORA Temperatura2 - sensor updated: %.2f",id(temperatura2).state);
        return id(temperatura2).state;
@@ -187,6 +187,6 @@ sensor:
   - platform: template
     name: "PING casa"
     id: pingcasa
-    update_interval: 90s    
+    update_interval: 60s    
 
   
