@@ -1,180 +1,306 @@
 esphome:
-  name: puertagaraje
-  friendly_name: Puerta Garaje
-  
+  name: loracoche
+
 esp32:
   board: esp32dev
   framework:
-    type: arduino
-    advanced:
-      minimum_chip_revision: "3.0"    
-  
-#wifi: 
-#  ssid:  DOMOTICACASA
-#  password: "33333333"
-#  reboot_timeout: 0s
+    type: esp-idf
 
+external_components:
+  - source: github://dala318/esphome@sx127x-transport
+    components:
+      - sx127x
+      - packet_transport
+ 
 logger:
   level: INFO
 
-# Enable Home Assistant API
 #api:
 #  reboot_timeout: 0s
 #  encryption:
 #    key: "Jokv+sef/jexoCyDaNj/b4RDGbAIysZv/o4IboDkzi4="
-    
+
 #ota:
 #  - platform: esphome
 #    password: "5523434a"
+
+#wifi:
+#  ssid: "DOMOTICACASA"
+#  password: "33333333"
+#  output_power: 20dB
+#  power_save_mode: none
+          
     
 #web_server:
 #  port: 80
-
-# Globals to store learned signals
+#      
+#captive_portal:
+              
+spi:
+  clk_pin: GPIO5
+  mosi_pin: GPIO27
+  miso_pin: GPIO19
+              
 globals:
-  - id: learned_code
-    type: std::vector<int32_t>
-    restore_value: false
-    initial_value: "{2638, -392, 2616, -369, 2643, -378, 2601, -374, 2644, -382, 2622, -359, 2644, -380, 370, -2624, 2628, -380, 369, -2642, 2605, -382, 369, -2642, 2606, -383, 370, -2642, 377, -2598, 374, -2642, 2609, -384, 371}"
-  - id: learning_mode
+
+  - id: ble_command_pending
     type: bool
+    restore_value: no
     initial_value: 'false'
-  - id: signal_learned
+    
+  - id: abrir_puerta
+    type: int
+    restore_value: no   
+    initial_value: '0'    
+
+  - id: ble_connected
     type: bool
-    initial_value: 'false'
-  - id: repeat_counter
+    restore_value: no
+    initial_value: 'false'  
+    
+  - id: open_door_command_duration
     type: int
     restore_value: no
-    initial_value: '100'
+    initial_value: '0'
+    
+  - id: page
+    type: int
+    restore_value: no
+    initial_value: '0'
 
+  - id: last_home_event_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  - id: max_wait_time_home_event
+    type: int
+    restore_value: no
+    initial_value: '120'
+    
+esp32_ble_tracker:
+
+ble_client:
+  - mac_address:  40:22:D8:E9:9A:2A
+    id: puertagaraje
+    on_connect:
+      then:
+        - lambda: |-
+            ESP_LOGI("ble_client_lambda", "Connected to BLE device");  
+        - lambda: |-
+            id(ble_connected) = true; 
+        - if:
+            condition:
+              lambda: 'return id(ble_command_pending);'
+            then:
+              - logger.log: "Sending pending BLE command"
+              - ble_client.ble_write:
+                  id: puertagaraje
+                  service_uuid: 2a24b789-7aab-4535-af3e-ee76a35cc42d
+                  characteristic_uuid: cad48e28-7fbe-41cf-bae9-d77a6c233423
+                  value: 1
+              - lambda: |-
+                  id(ble_command_pending) = false;            
+    on_disconnect:
+      then:
+        - lambda: |-
+            ESP_LOGI("ble_client_lambda", "Disconnected from BLE device");
+        - lambda: |-
+            id(ble_connected) = false;            
+            
+          
 interval:
-  - interval: 3s
+
+  - interval: 1s
     then:
+      - lambda: |-
+          // 30 segs margin to open the door again
+          if (id(open_door_command_duration) > 30) 
+          {
+            id(open_door_command_duration)--;
+            ESP_LOGD("LoRa", "Open door command still in progress.");
+          }
+          else
+          {
+                uint32_t elapsed = (millis() / 1000) - id(last_home_event_time);
+                if (elapsed < id(max_wait_time_home_event) ) 
+                {
+                    ESP_LOGI("LoRa", "Less than %u seconds since last PING!. We need to open door!",id(max_wait_time_home_event));
+                    id(abrir_puerta)=1;
+                }  
+                else
+                {
+                    ESP_LOGI("LoRa", "More than %u seconds since last PING!. No need to open door!",id(max_wait_time_home_event));
+                }
+          }
+          
+  - interval: 5s
+    then:
+      - lambda: |-
+          id(page)++;
+          if (id(page) > 2) {
+            id(page) = 0;
+          }
       - if:
           condition:
-            lambda: 'return id(repeat_counter) >= 0;'
+            lambda: 'return (id(abrir_puerta)>0);'
           then:
-            - lambda: |-
-                ESP_LOGI("replay", "Pending executions #%d", id(repeat_counter));
-                id(repeat_counter)--;
-            - lambda: |-
-                if (id(learned_code).empty()) {
-                  ESP_LOGW("replay", "No signal learned yet!");
-                  id(learn_status).publish_state("No signal to replay - learn one first!");
-                  return;
-                }
-                ESP_LOGI("replay", "Sending %d pulses...", id(learned_code).size());
-                id(learn_status).publish_state("Transmitting...");
-            - remote_transmitter.transmit_raw:
-                carrier_frequency: 0Hz
-                code: !lambda 'return id(learned_code);'
-#            - lambda: |-
-#                id(learn_status).publish_state("Signal transmitted!");
-#                ESP_LOGI("replay", "Send complete");
-#            - lambda: |-
-#                std::string preview = "";
-#                int count = 0;
-#                for (int32_t val : id(learned_code)) {
-#                    if (count > 0) preview += ", ";
-#                    preview += std::to_string(val);
-#                    count++;
-#                    if (count >= 10) {
-#                      preview += "... (" + std::to_string(id(learned_code).size()) + " total)";
-#                      break;
-#                    }
-#                } 
-#                id(last_signal).publish_state(preview.c_str());      
+              - if:
+                  condition:
+                    lambda: 'return id(puertagaraje).connected();'
+                  then:
+                    - logger.log: "BLE just connected. Sending command."
+                    - ble_client.ble_write:
+                        id: puertagaraje
+                        service_uuid: 2a24b789-7aab-4535-af3e-ee76a35cc42d
+                        characteristic_uuid: cad48e28-7fbe-41cf-bae9-d77a6c233423
+                        value: 1
+                    - lambda: |-
+                        id(open_door_command_duration)=300;
+                        id(abrir_puerta)=0;
+                  else:
+                    - logger.log: "BLE NOT connected. Queuing command."
+                    - lambda: |-
+                        id(ble_command_pending) = true;
+                    - ble_client.connect: puertagaraje
 
+
+              
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  frequency: 400kHz
   
-esp32_ble:
-  io_capability: none 
-  disable_bt_logs: true  # Default, saves flash
-  
-esp32_ble_server:
-  manufacturer: "ESP32"
-  model: "ESP32"
-  manufacturer_data: [0x4C, 0, 0x23, 77, 0xF0 ]
-  on_connect:
-    - lambda: |-
-        ESP_LOGI("BLE", "Connection started!");
-  on_disconnect:
-    - lambda: |-
-        ESP_LOGI("BLE", "Connection finished!");
-  services:
-    - uuid: 2a24b789-7aab-4535-af3e-ee76a35cc42d
-      advertise: true
-      characteristics:
-        - id: button_pressed
-          uuid: cad48e28-7fbe-41cf-bae9-d77a6c233423
-          description: "Button pressed"
-          write: true
-          on_write:
-            then:
-                - lambda: |-
-                    id(repeat_counter) = 100;
-                    ESP_LOGI("BLE", "repeat_counter set to %d", id(repeat_counter));
-
-# SPI Bus
-spi:
-  clk_pin: GPIO18
-  mosi_pin: GPIO23
-  miso_pin: GPIO19
-
-# CC1101 - Dual Pin Mode
-cc1101:
-  id: cc1101_module
-  cs_pin: GPIO5
-  frequency: 433.92MHz
-  output_power: 11
-  modulation_type: ASK/OOK
-  symbol_rate: 5000
-  filter_bandwidth: 200kHz
-
-# Remote Transmitter - connected to GDO0
-remote_transmitter:
-  id: rf_transmitter
-  pin: GPIO4
-  carrier_duty_percent: 100%
-  on_transmit:
+sx127x: 
+  id: my_lora  
+  dio0_pin: GPIO26
+  cs_pin: GPIO18
+  rst_pin: GPIO23
+  pa_pin: BOOST
+  pa_power: 17
+  bandwidth: 125_0kHz
+  crc_enable: true
+  frequency: 868920000
+  modulation: LORA
+  rx_start: true
+  sync_value: 0x12
+  spreading_factor: 10
+  coding_rate: CR_4_5
+  on_packet:
     then:
-      - cc1101.begin_tx: cc1101_module
-  on_complete:
-    then:
-      - cc1101.begin_rx: cc1101_module
-
-
-button:
-  - platform: restart
-    name: "Restart"
-
-
-  - platform: template
-    name: "Send Signal"
-    icon: "mdi:replay"
-    on_press:
       - lambda: |-
-          id(repeat_counter)=100;
-          ESP_LOGI("BLE", "repeat_counter reset to %d", id(repeat_counter));
 
-
-text_sensor:
-#  - platform: template
-#    name: "Signal"
-#    id: last_signal
-#    icon: "mdi:signal"
-
-  - platform: template
-    name: "Status"
-    id: learn_status
-    icon: "mdi:information"
-
+          std::string payload = "";
+          for (auto b : x) {
+            if (isprint(b)) payload += b;
+            else payload += '.';
+          }
+          ESP_LOGI("LoRa", "Payload: %s", payload.c_str());
+          if (payload.find("cmdopen") != std::string::npos) {
+            ESP_LOGI("LoRa", "CMDOPEN packet received!");
+            id(abrir_puerta)=1;
+          } 
+          else if (payload.find("pingcasa") != std::string::npos) {
+            id(last_home_event_time) = millis() / 1000  ;
+            ESP_LOGI("LoRa", "PING casa packet received. Time %u", id(last_home_event_time));
+          } 
+          else {
+            ESP_LOGW("LoRa", "Unknown packet type: %s", payload.c_str());
+          }          
+          
+          
+packet_transport:
+  platform: sx127x
+  update_interval: 60s
+  sensors:
+    - pingcoche
+  providers:
+    - name: lorasender1
     
-sensor:
+sensor:   
   - platform: template
-    name: "Signal length"
-    id: signal_length
-    icon: "mdi:counter"
-    unit_of_measurement: "pulses"
-    lambda: 'return id(learned_code).size();'
-    update_interval: 5s
-    
+    name: "PING coche"
+    id: pingcoche
+    update_interval: 60s 
+ 
+  - platform: ble_client
+    type: characteristic
+    ble_client_id: puertagaraje
+    name: "Pending executions on the server"
+    service_uuid: 2a24b789-7aab-4535-af3e-ee76a35cc42d
+    characteristic_uuid: cad48e28-7fbe-41cf-bae9-d77a6c233429
+    notify: true
+    lambda: |-
+      if (x.size() == 4) {
+        uint32_t val = x[0] | (x[1] << 8) | (x[2] << 16) | (x[3] << 24);
+        id(open_door_command_duration)=val*3;
+        ESP_LOGI("BLE", "Pending command duration: %d segs.", id(open_door_command_duration));
+        return val;
+      }
+      return 0;  
+      
+# OLED Display
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    lambda: |-
+          int center_x = it.get_width() / 2;
+          int center_y = it.get_height() / 2;
+          int line_spacing = 16;
+
+          if (id(page) == 0) {
+             if (id(ble_connected)) 
+             {
+                it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"CONNECTED");
+             }
+             else
+             {
+                it.printf(center_x, center_y - line_spacing / 2, id(display_font1), TextAlign::CENTER,"NOT");
+                it.printf(center_x, center_y + line_spacing / 2, id(display_font1), TextAlign::CENTER,"CONNECTED");
+             }
+             
+          } 
+          else if (id(page) == 1) 
+          {
+             if (id(last_home_event_time)<15)
+             {
+                it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"JUST STARTED");
+             }
+             else
+             {
+                 uint32_t elapsed = (millis() / 1000) - id(last_home_event_time);
+                 if (elapsed < id(max_wait_time_home_event) )
+                 {
+                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS CLOSE");
+                 }
+                 else
+                 {
+                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS FAR");
+                 }
+            }
+          }
+          else if ((id(page) == 2)) 
+          {
+             if (id(open_door_command_duration)>0)
+             {
+                it.printf(center_x, center_y - line_spacing / 2, id(display_font1), TextAlign::CENTER,"SIGNAL FOR...");
+                it.printf(center_x, center_y + line_spacing / 2, id(display_font1), TextAlign::CENTER, "%d segs.", id(open_door_command_duration));
+             }
+             else
+             {
+                if (id(abrir_puerta)) 
+                {
+                 it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS CLOSE");
+                }
+                else
+                {
+                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS FAR");
+                }
+             }
+          
+          }
+font:
+  - file: "gfonts://Roboto"
+    id: display_font1
+    size: 18
