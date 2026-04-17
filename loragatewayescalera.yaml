@@ -117,10 +117,10 @@ sx127x:
     then:
       - lambda: |-
           //Print raw packet as hex
-          //ESP_LOGI("LoRa", "Packet HEX: %s", format_hex(x).c_str());
+          ESP_LOGD("LoRa", "Packet HEX: %s", format_hex(x).c_str());
           
           //Print packet length
-          //ESP_LOGI("LoRa", "Length: %u bytes", x.size());
+          ESP_LOGD("LoRa", "Length: %u bytes", x.size());
           
           // Print payload as ASCII (if printable)
           std::string payload = "";
@@ -135,8 +135,8 @@ sx127x:
           else if (payload.find("loracoche") != std::string::npos) {
             ESP_LOGI("LoRa", "PING coche packet received!");
           } 
-          else if (payload.find("temperatura") != std::string::npos) {
-            ESP_LOGI("LoRa", "PING placas packet received!");
+          else if (payload.find("pingcasa") != std::string::npos) {
+            ESP_LOGI("LoRa", "PING casa packet received!");
           } 
           else {
             ESP_LOGI("LoRa", "Unknown packet type: %s", payload.c_str());
