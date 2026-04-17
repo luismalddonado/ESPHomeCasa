@@ -4,7 +4,7 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
+    type: esp-idf
 
 external_components:
   - source: github://dala318/esphome@sx127x-transport
@@ -16,6 +16,12 @@ external_components:
 logger:
   level: INFO
 
+globals:
+  - id: pingcasa_count
+    type: int
+    restore_value: no   
+    initial_value: '0'
+    
 button:
   - platform: restart
     id: restart_button
@@ -28,7 +34,13 @@ interval:
       - logger.log: "Rebooting device (scheduled restart)..."
       - delay: 200ms
       - button.press: restart_button
-      
+
+  - interval: 150s
+    then:
+      - lambda: |-
+          id(pingcasa_count) += 1;
+          id(pingcasa).publish_state((int) id(pingcasa_count));  
+          
 spi:
   clk_pin: GPIO5
   mosi_pin: GPIO27
@@ -44,21 +56,46 @@ sx127x:
   crc_enable: true
   frequency: 868920000
   modulation: LORA
-  rx_start: false
+  rx_start: true
   sync_value: 0x12
   spreading_factor: 10
   coding_rate: CR_4_5
   on_packet:
     then:
       - lambda: |-
-          ESP_LOGI("lambda", "packet %s", format_hex(x).c_str());
+          //Print raw packet as hex
+          ESP_LOGD("LoRa", "Packet HEX: %s", format_hex(x).c_str());
+          
+          //Print packet length
+          ESP_LOGD("LoRa", "Length: %u bytes", x.size());
+          
+          // Print payload as ASCII (if printable)
+          std::string payload = "";
+          for (auto b : x) {
+            if (isprint(b)) payload += b;
+            else payload += '.';
+          }
+          ESP_LOGI("LoRa", "Payload: %s", payload.c_str());
+          if (payload.find("statusopen") != std::string::npos) {
+            ESP_LOGI("LoRa", "STATUSOPEN packet received!");
+          }           
+          else if (payload.find("loracoche") != std::string::npos) {
+            ESP_LOGI("LoRa", "PING coche packet received!");
+          } 
+          else if (payload.find("pingcasa") != std::string::npos) {
+            ESP_LOGI("LoRa", "PING casa packet received!");
+          } 
+          else {
+            ESP_LOGI("LoRa", "Unknown packet type: %s", payload.c_str());
+          }      
           
 packet_transport:
   platform: sx127x
-  update_interval: 120s
+  update_interval: 180s
   sensors:
     - temperatura1
     - temperatura2
+    - pingcasa
   providers:
     - name: lorasender1
           
@@ -74,12 +111,17 @@ sensor:
     accuracy_decimals: 1
     one_wire_id: temperaturapin
     id: temperatura1
-    update_interval: 120s
+    update_interval: 150s
   - platform: dallas_temp
     address: 0xc0000000b352eb28
     name: "Temperatura 2"
     accuracy_decimals: 1
     one_wire_id: temperaturapin
     id: temperatura2
-    update_interval: 120s
+    update_interval: 150s  
+
+  - platform: template
+    name: "PING casa"
+    id: pingcasa
+    update_interval: 150s   
     
