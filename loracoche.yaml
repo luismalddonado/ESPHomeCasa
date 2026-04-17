@@ -265,18 +265,18 @@ display:
           {
              if (id(last_home_event_time)<15)
              {
-                it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"JUST STARTED");
+                it.printf(center_x, center_y / 2, id(display_font2), TextAlign::CENTER,"STARTED");
              }
              else
              {
                  uint32_t elapsed = (millis() / 1000) - id(last_home_event_time);
                  if (elapsed < id(max_wait_time_home_event) )
                  {
-                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS CLOSE");
+                    it.printf(center_x, center_y / 2, id(display_font2), TextAlign::CENTER,"CLOSE");
                  }
                  else
                  {
-                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS FAR");
+                    it.printf(center_x, center_y / 2, id(display_font2), TextAlign::CENTER,"FAR");
                  }
             }
           }
@@ -284,18 +284,17 @@ display:
           {
              if (id(open_door_command_duration)>0)
              {
-                it.printf(center_x, center_y - line_spacing / 2, id(display_font1), TextAlign::CENTER,"SIGNAL FOR...");
-                it.printf(center_x, center_y + line_spacing / 2, id(display_font1), TextAlign::CENTER, "%d segs.", id(open_door_command_duration));
+                it.printf(center_x, center_y + line_spacing / 2, id(display_font2), TextAlign::CENTER, "* %d *", id(open_door_command_duration));
              }
              else
              {
                 if (id(abrir_puerta)) 
                 {
-                 it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS CLOSE");
+                 it.printf(center_x, center_y / 2, id(display_font2), TextAlign::CENTER,"CLOSE");
                 }
                 else
                 {
-                    it.printf(center_x, center_y / 2, id(display_font1), TextAlign::CENTER,"HOME IS FAR");
+                    it.printf(center_x, center_y / 2, id(display_font2), TextAlign::CENTER,"FAR");
                 }
              }
           
@@ -303,4 +302,8 @@ display:
 font:
   - file: "gfonts://Roboto"
     id: display_font1
-    size: 18
+    size: 22
+    
+  - file: "gfonts://Roboto"
+    id: display_font2
+    size: 26
